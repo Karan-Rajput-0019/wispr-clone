@@ -1,7 +1,6 @@
 // Minimal Deepgram live-streaming client using WebSocket
 
-const DEEPGRAM_API_KEY = (import.meta as any).env
-  .VITE_DEEPGRAM_API_KEY as string
+import { getDeepgramApiKey } from './settings'
 
 let mediaStream: MediaStream | null = null
 let mediaRecorder: MediaRecorder | null = null
@@ -41,8 +40,11 @@ export async function startDictation(
   onError: (err: string) => void,
 ) {
   try {
-    if (!DEEPGRAM_API_KEY) {
-      throw new Error('Missing Deepgram API key (VITE_DEEPGRAM_API_KEY)')
+    const apiKey = getDeepgramApiKey()
+    if (!apiKey) {
+      throw new Error(
+        'Missing Deepgram API key. Add VITE_DEEPGRAM_API_KEY in a root .env, or set it in Settings.'
+      )
     }
 
     // Reset session state
@@ -57,7 +59,7 @@ export async function startDictation(
       `&language=${encodeURIComponent(language)}` +
       `&punctuate=true&smart_format=true&interim_results=true`
 
-    socket = new WebSocket(wsUrl, ['token', DEEPGRAM_API_KEY])
+    socket = new WebSocket(wsUrl, ['token', apiKey])
 
     socket.onopen = () => {
       const mimeType = pickRecorderMimeType()

@@ -5,6 +5,7 @@ import { startDictation, stopDictation } from './services/audio'
 import { injectText } from './services/injector'
 import { addToHistory, loadHistory, type HistoryItem } from './services/history'
 import { playStartSound, playStopSound } from './services/sound'
+import { getDeepgramApiKey, loadSettings, setDeepgramApiKey } from './services/settings'
 import './App.css'
 
 type RecordingStatus = 'idle' | 'starting' | 'recording' | 'stopping'
@@ -16,6 +17,10 @@ type WisprUpdate = {
 }
 
 const isOverlayMode = new URLSearchParams(window.location.search).get('overlay') === '1'
+
+if (isOverlayMode) {
+  document.body.classList.add('isOverlay')
+}
 
 function OverlayApp() {
   const [status, setStatus] = useState<RecordingStatus>('idle')
@@ -85,6 +90,10 @@ function MainApp() {
   const [history, setHistory] = useState<HistoryItem[]>(() => loadHistory())
   const [toast, setToast] = useState<string | null>(null)
 
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [apiKeyInput, setApiKeyInput] = useState(() => loadSettings().deepgramApiKey ?? '')
+  const [apiKeyVisible, setApiKeyVisible] = useState(false)
+
   const isRecording = status === 'starting' || status === 'recording'
 
   const statusRef = useRef(status)
@@ -137,8 +146,23 @@ function MainApp() {
     void broadcast({ transcript: text })
   }
 
+  const ensureApiKey = (): boolean => {
+    const key = getDeepgramApiKey()
+    if (key && key.trim().length > 0) return true
+
+    setToast('Add your Deepgram API key in Settings to start dictation')
+    setSettingsOpen(true)
+
+    // If main window is hidden (tray mode), bring it back so the user can paste the key.
+    void appWindow.show()
+    void appWindow.setFocus()
+
+    return false
+  }
+
   const handleStart = async () => {
     if (statusRef.current !== 'idle') return
+    if (!ensureApiKey()) return
 
     try {
       setErrorAndBroadcast(null)
@@ -247,11 +271,51 @@ function MainApp() {
 
   const hotkeyHint = useMemo(() => 'Ctrl+Shift+Space', [])
 
+  useEffect(() => {
+    // If no key is set, prompt settings on first load.
+    if (!getDeepgramApiKey()) {
+      setSettingsOpen(true)
+    }
+  }, [])
+
+  const saveKey = () => {
+    setDeepgramApiKey(apiKeyInput)
+    if (getDeepgramApiKey()) {
+      setToast('API key saved')
+      setSettingsOpen(false)
+      setErrorAndBroadcast(null)
+    } else {
+      setToast('Invalid API key')
+    }
+  }
+
   return (
     <div className="app">
-      <h1>Wispr Flow Clone</h1>
+      <header className="topBar">
+        <div>
+          <h1>Wispr Flow Clone</h1>
+          <div className="subtle">Hotkey: <code>{hotkeyHint}</code></div>
+        </div>
+
+        <div className="topBarActions">
+          <button className="chip" onClick={() => setSettingsOpen(true)}>
+            Settings
+          </button>
+        </div>
+      </header>
 
       {toast && <div className="toast">{toast}</div>}
+
+      {!getDeepgramApiKey() && (
+        <div className="banner">
+          <div>
+            <strong>Deepgram key required.</strong> Add it in Settings to enable speech-to-text.
+          </div>
+          <button className="miniBtn" onClick={() => setSettingsOpen(true)}>
+            Open Settings
+          </button>
+        </div>
+      )}
 
       <div className="controls">
         <label>
@@ -268,10 +332,58 @@ function MainApp() {
           {isRecording ? 'Stop Recording' : 'Start Recording'}
         </button>
 
+        <button className="btn secondary" onClick={() => setSettingsOpen(true)}>
+          Settings
+        </button>
+
         <button className="btn secondary" onClick={() => void appWindow.hide()}>
           Hide
         </button>
       </div>
+
+      {settingsOpen && (
+        <div className="modalBackdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div>
+                <div className="modalTitle">Deepgram API Key</div>
+                <div className="modalSubtitle">
+                  Stored locally (localStorage). Not committed to git.
+                </div>
+              </div>
+              <button className="iconBtn" onClick={() => setSettingsOpen(false)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+
+            <div className="field">
+              <label>Key</label>
+              <div className="fieldRow">
+                <input
+                  className="input"
+                  type={apiKeyVisible ? 'text' : 'password'}
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="Paste your Deepgram key"
+                  autoFocus
+                />
+                <button className="miniBtn" onClick={() => setApiKeyVisible((v) => !v)}>
+                  {apiKeyVisible ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </div>
+
+            <div className="modalActions">
+              <button className="btn secondary" onClick={() => setSettingsOpen(false)}>
+                Cancel
+              </button>
+              <button className="btn start" onClick={saveKey}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 
