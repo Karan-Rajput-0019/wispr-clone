@@ -1,7 +1,10 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::{GlobalShortcutManager, Manager};
+use tauri::{
+  CustomMenuItem, GlobalShortcutManager, Manager, SystemTray, SystemTrayEvent,
+  SystemTrayMenu, WindowEvent, WindowUrl,
+};
 
 #[tauri::command]
 fn inject_text(text: String) -> Result<(), String> {
@@ -21,8 +24,60 @@ fn inject_text(text: String) -> Result<(), String> {
 }
 
 fn main() {
+  let tray_menu = SystemTrayMenu::new()
+    .add_item(CustomMenuItem::new("toggle_main".to_string(), "Show/Hide"))
+    .add_item(CustomMenuItem::new(
+      "toggle_recording".to_string(),
+      "Start/Stop Dictation (Ctrl+Shift+Space)",
+    ))
+    .add_item(CustomMenuItem::new("quit".to_string(), "Quit"));
+
   tauri::Builder::default()
+    .system_tray(SystemTray::new().with_menu(tray_menu))
+    .on_system_tray_event(|app, event| match event {
+      SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
+        "toggle_main" => {
+          if let Some(w) = app.get_window("main") {
+            if w.is_visible().unwrap_or(true) {
+              let _ = w.hide();
+            } else {
+              let _ = w.show();
+              let _ = w.set_focus();
+            }
+          }
+        }
+        "toggle_recording" => {
+          // Mirror the global hotkey behavior.
+          if let Some(overlay) = app.get_window("overlay") {
+            let _ = overlay.show();
+          }
+          let _ = app.emit_all("toggle-recording", ());
+        }
+        "quit" => {
+          app.exit(0);
+        }
+        _ => {}
+      },
+      _ => {}
+    })
     .setup(|app| {
+      // Create a small always-on-top overlay window (Wispr Flow bar).
+      // It starts hidden and is shown on hotkey while recording.
+      let _overlay = tauri::WindowBuilder::new(
+        app,
+        "overlay",
+        WindowUrl::App("index.html?overlay=1".into()),
+      )
+      .title("wispr")
+      .decorations(false)
+      .transparent(true)
+      .always_on_top(true)
+      .resizable(false)
+      .skip_taskbar(true)
+      .visible(false)
+      .inner_size(520.0, 84.0)
+      .build()?;
+
       // Wispr Flow-style global hotkey to toggle recording.
       // NOTE: Requires OS-level permissions/availability on some platforms.
       let handle = app.handle();
@@ -30,11 +85,27 @@ fn main() {
       app
         .global_shortcut_manager()
         .register("Ctrl+Shift+Space", move || {
+          // Show overlay but avoid stealing focus.
+          if let Some(overlay) = handle.get_window("overlay") {
+            let _ = overlay.show();
+          }
           // Fire-and-forget; the frontend decides whether to start/stop.
           let _ = handle.emit_all("toggle-recording", ());
         })?;
 
       Ok(())
+    })
+    .on_window_event(|event| {
+      // Close-to-tray: hide window instead of exiting.
+      if let WindowEvent::CloseRequested { api, .. } = event.event() {
+        // Allow overlay to close normally (it’s non-essential).
+        if event.window().label() == "overlay" {
+          return;
+        }
+
+        api.prevent_close();
+        let _ = event.window().hide();
+      }
     })
     .invoke_handler(tauri::generate_handler![inject_text])
     .run(tauri::generate_context!())

@@ -35,8 +35,7 @@ Notes for Windows builds:
 - `npm run tauri -- info` currently reports missing **Visual Studio / MSVC build tools + Windows SDK** in this environment; Rust/Tauri builds will fail until those are installed.
 
 ### TypeScript typecheck
-No explicit `typecheck` script is configured. Run directly:
-- `npx tsc -p tsconfig.json --noEmit`
+- `npm run typecheck`
 
 ### Lint / tests
 No linting or test runner scripts are configured in `package.json` currently.
@@ -80,3 +79,11 @@ Command bridge:
 Global hotkey:
 - Rust registers `Ctrl+Shift+Space` and emits a `toggle-recording` event.
 - React listens for `toggle-recording` in `src/App.tsx` and toggles start/stop.
+
+Overlay (flow bar):
+- Rust creates an always-on-top window labeled `overlay` loading `index.html?overlay=1`.
+- The overlay UI listens for `wispr:update` events and auto-hides when idle.
+
+System tray:
+- Closing the main window hides it to tray.
+- Tray menu provides Show/Hide, Start/Stop, and Quit.
