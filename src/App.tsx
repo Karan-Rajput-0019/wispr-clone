@@ -6,6 +6,7 @@ import { injectText } from './services/injector'
 import { addToHistory, loadHistory, type HistoryItem } from './services/history'
 import { playStartSound, playStopSound } from './services/sound'
 import { getDeepgramApiKey, loadSettings, setDeepgramApiKey } from './services/settings'
+import { testDeepgramConnection, testMicrophone } from './services/deepgram'
 import './App.css'
 
 type RecordingStatus = 'idle' | 'starting' | 'recording' | 'stopping'
@@ -93,6 +94,11 @@ function MainApp() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [apiKeyInput, setApiKeyInput] = useState(() => loadSettings().deepgramApiKey ?? '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
+
+  const [dgTest, setDgTest] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [dgTestMsg, setDgTestMsg] = useState<string>('')
+  const [micTest, setMicTest] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [micTestMsg, setMicTestMsg] = useState<string>('')
 
   const isRecording = status === 'starting' || status === 'recording'
 
@@ -282,10 +288,35 @@ function MainApp() {
     setDeepgramApiKey(apiKeyInput)
     if (getDeepgramApiKey()) {
       setToast('API key saved')
-      setSettingsOpen(false)
       setErrorAndBroadcast(null)
     } else {
       setToast('Invalid API key')
+    }
+  }
+
+  const runDeepgramTest = async () => {
+    setDgTest('testing')
+    setDgTestMsg('')
+    const res = await testDeepgramConnection(apiKeyInput || getDeepgramApiKey() || '', language)
+    if (res.ok) {
+      setDgTest('ok')
+      setDgTestMsg('Connected successfully')
+    } else {
+      setDgTest('fail')
+      setDgTestMsg(res.error)
+    }
+  }
+
+  const runMicTest = async () => {
+    setMicTest('testing')
+    setMicTestMsg('')
+    const res = await testMicrophone()
+    if (res.ok) {
+      setMicTest('ok')
+      setMicTestMsg('Microphone is accessible')
+    } else {
+      setMicTest('fail')
+      setMicTestMsg(res.error)
     }
   }
 
@@ -364,6 +395,16 @@ function MainApp() {
                   type={apiKeyVisible ? 'text' : 'password'}
                   value={apiKeyInput}
                   onChange={(e) => setApiKeyInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      saveKey()
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setSettingsOpen(false)
+                    }
+                  }}
                   placeholder="Paste your Deepgram key"
                   autoFocus
                 />
@@ -373,11 +414,43 @@ function MainApp() {
               </div>
             </div>
 
+            <div className="testRow">
+              <button className="miniBtn" onClick={() => void runMicTest()} disabled={micTest === 'testing'}>
+                {micTest === 'testing' ? 'Testing mic…' : 'Test Mic'}
+              </button>
+              <div className={micTest === 'ok' ? 'testOk' : micTest === 'fail' ? 'testFail' : 'testIdle'}>
+                {micTest === 'idle'
+                  ? ''
+                  : micTest === 'ok'
+                    ? `✓ ${micTestMsg}`
+                    : `✕ ${micTestMsg}`}
+              </div>
+            </div>
+
+            <div className="testRow">
+              <button className="miniBtn" onClick={() => void runDeepgramTest()} disabled={dgTest === 'testing'}>
+                {dgTest === 'testing' ? 'Testing Deepgram…' : 'Test Deepgram'}
+              </button>
+              <div className={dgTest === 'ok' ? 'testOk' : dgTest === 'fail' ? 'testFail' : 'testIdle'}>
+                {dgTest === 'idle'
+                  ? ''
+                  : dgTest === 'ok'
+                    ? `✓ ${dgTestMsg}`
+                    : `✕ ${dgTestMsg}`}
+              </div>
+            </div>
+
             <div className="modalActions">
               <button className="btn secondary" onClick={() => setSettingsOpen(false)}>
-                Cancel
+                Close
               </button>
-              <button className="btn start" onClick={saveKey}>
+              <button
+                className="btn start"
+                onClick={() => {
+                  saveKey()
+                  setSettingsOpen(false)
+                }}
+              >
                 Save
               </button>
             </div>
