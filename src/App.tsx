@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import { startDictation, stopDictation } from './services/audio'
 import { injectText } from './services/injector'
 import './App.css'
@@ -8,6 +9,11 @@ function App() {
   const [transcript, setTranscript] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [language, setLanguage] = useState('en')
+
+  const isRecordingRef = useRef(isRecording)
+  useEffect(() => {
+    isRecordingRef.current = isRecording
+  }, [isRecording])
 
   const handleStart = async () => {
     try {
@@ -43,12 +49,33 @@ function App() {
   }
 
   const toggleRecording = () => {
-    if (isRecording) {
-      handleStop()
+    if (isRecordingRef.current) {
+      void handleStop()
     } else {
-      handleStart()
+      void handleStart()
     }
   }
+
+  // Listen for the Rust global shortcut event.
+  useEffect(() => {
+    let unlisten: null | (() => void) = null
+
+    listen('toggle-recording', () => {
+      toggleRecording()
+    })
+      .then((fn) => {
+        unlisten = fn
+      })
+      .catch((e) => {
+        console.warn('Failed to listen for toggle-recording event', e)
+      })
+
+    return () => {
+      try {
+        unlisten?.()
+      } catch {}
+    }
+  }, [])
 
   return (
     <div className="app">

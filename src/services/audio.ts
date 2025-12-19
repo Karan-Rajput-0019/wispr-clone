@@ -1,5 +1,4 @@
 // Minimal Deepgram live-streaming client using WebSocket
-// Deepgram live docs: wss://api.deepgram.com/v1/listen with 'token' subprotocol.[web:32][web:77]
 
 const DEEPGRAM_API_KEY = (import.meta as any).env
   .VITE_DEEPGRAM_API_KEY as string
@@ -7,6 +6,34 @@ const DEEPGRAM_API_KEY = (import.meta as any).env
 let mediaStream: MediaStream | null = null
 let mediaRecorder: MediaRecorder | null = null
 let socket: WebSocket | null = null
+
+let finalTranscript = ''
+let partialTranscript = ''
+
+function pickRecorderMimeType(): string | undefined {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+  ]
+
+  for (const t of candidates) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) {
+      return t
+    }
+  }
+
+  return undefined
+}
+
+function currentDisplayTranscript(): string {
+  const f = finalTranscript.trim()
+  const p = partialTranscript.trim()
+  if (!f) return p
+  if (!p) return f
+  return `${f} ${p}`
+}
 
 export async function startDictation(
   language: string,
@@ -18,15 +45,25 @@ export async function startDictation(
       throw new Error('Missing Deepgram API key (VITE_DEEPGRAM_API_KEY)')
     }
 
+    // Reset session state
+    finalTranscript = ''
+    partialTranscript = ''
+    onTranscript('')
+
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
 
-    socket = new WebSocket(
-      `wss://api.deepgram.com/v1/listen?model=nova-2&language=${language}`,
-      ['token', DEEPGRAM_API_KEY],
-    )
+    const wsUrl =
+      `wss://api.deepgram.com/v1/listen?model=nova-2` +
+      `&language=${encodeURIComponent(language)}` +
+      `&punctuate=true&smart_format=true&interim_results=true`
+
+    socket = new WebSocket(wsUrl, ['token', DEEPGRAM_API_KEY])
 
     socket.onopen = () => {
-      mediaRecorder = new MediaRecorder(mediaStream as MediaStream)
+      const mimeType = pickRecorderMimeType()
+      mediaRecorder = new MediaRecorder(mediaStream as MediaStream, {
+        ...(mimeType ? { mimeType } : {}),
+      })
 
       mediaRecorder.addEventListener('dataavailable', (event) => {
         if (socket && socket.readyState === WebSocket.OPEN) {
@@ -34,7 +71,7 @@ export async function startDictation(
         }
       })
 
-      // Send chunks every 250ms as suggested in Deepgram live examples.[web:32]
+      // Send chunks frequently to keep latency down.
       mediaRecorder.start(250)
     }
 
@@ -42,12 +79,19 @@ export async function startDictation(
       try {
         const data = JSON.parse(event.data)
 
-        const transcript =
+        const transcript: string =
           data?.channel?.alternatives?.[0]?.transcript ?? ''
 
-        if (transcript && data.is_final) {
-          onTranscript(transcript)
+        if (!transcript) return
+
+        if (data.is_final) {
+          finalTranscript = (finalTranscript + ' ' + transcript).trim()
+          partialTranscript = ''
+        } else {
+          partialTranscript = transcript
         }
+
+        onTranscript(currentDisplayTranscript())
       } catch (e) {
         console.error('Error parsing Deepgram message', e)
       }
@@ -59,6 +103,7 @@ export async function startDictation(
     }
 
     socket.onclose = () => {
+      // Normal on stop.
       console.log('Deepgram WebSocket closed')
     }
   } catch (e) {
@@ -68,6 +113,8 @@ export async function startDictation(
 }
 
 export async function stopDictation(): Promise<string> {
+  const socketToClose = socket
+
   try {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       mediaRecorder.stop()
@@ -79,13 +126,53 @@ export async function stopDictation(): Promise<string> {
     mediaStream = null
   }
 
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.close()
-  }
-
   mediaRecorder = null
   socket = null
 
-  // Let caller use the last transcript it already has
-  return ''
+  const finalTextNow = finalTranscript.trim()
+
+  if (!socketToClose) {
+    return finalTextNow
+  }
+
+  // Give Deepgram a moment to flush the last final results.
+  return await new Promise((resolve) => {
+    const timeoutMs = 1500
+    const timer = setTimeout(() => {
+      try {
+        if (
+          socketToClose.readyState === WebSocket.OPEN ||
+          socketToClose.readyState === WebSocket.CONNECTING
+        ) {
+          socketToClose.close()
+        }
+      } catch {}
+      resolve(finalTranscript.trim())
+    }, timeoutMs)
+
+    const prevOnClose = socketToClose.onclose
+    socketToClose.onclose = (ev) => {
+      try {
+        if (typeof prevOnClose === 'function') prevOnClose.call(socketToClose, ev)
+      } finally {
+        clearTimeout(timer)
+        resolve(finalTranscript.trim())
+      }
+    }
+
+    try {
+      if (
+        socketToClose.readyState === WebSocket.OPEN ||
+        socketToClose.readyState === WebSocket.CONNECTING
+      ) {
+        socketToClose.close()
+      } else {
+        clearTimeout(timer)
+        resolve(finalTranscript.trim())
+      }
+    } catch {
+      clearTimeout(timer)
+      resolve(finalTranscript.trim())
+    }
+  })
 }
