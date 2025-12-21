@@ -8,19 +8,18 @@ edition = "2021"
 rust-version = "1.70"
 
 [build-dependencies]
-tauri-build = { version = "1.8.3", features = [] }
+tauri-build = { version = "1.5", features = [] }
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Tauri backend with system tray + all APIs
 tauri = { version = "1.8.3", features = [
-  "api-all"] }
+  "api-all",
+  "system-tray"
+] }
 
-# Enigo version that has .text() returning Result
 enigo = "0.2"
-
 log = "0.4"
 env_logger = "0.11"
 
