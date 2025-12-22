@@ -1,29 +1,32 @@
 [package]
 name = "app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
-default-run = "app"
+description = "wispr clone"
+authors = ["You"]
+license = "MIT"
 edition = "2021"
-rust-version = "1.60"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+rust-version = "1.70"
 
 [build-dependencies]
-tauri-build = { version = "1.5.5", features = [] }
+tauri-build = { version = "1.5", features = [] }
 
 [dependencies]
-serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+<<<<<<< HEAD
 tauri = { version = "1.8.1", features = [ "api-all", "global-shortcut"] }
+=======
+serde_json = "1.0"
+>>>>>>> f81bad704b3b6cef84039ce25aaf0019b595ac8f
 
-# Used to type text into the currently focused application
-enigo = "0.1"
+tauri = { version = "1.8.3", features = [
+  "api-all",
+  "system-tray"
+] }
+
+enigo = "0.2"
+log = "0.4"
+env_logger = "0.11"
 
 [features]
-# this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
-# If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
-# DO NOT REMOVE!!
-custom-protocol = [ "tauri/custom-protocol" ]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
